@@ -1,0 +1,78 @@
+-- 1. SELECT cust_sk
+SELECT 'cust_sk' AS src, cust_sk, NULL AS col2, NULL AS col3, NULL AS col4, NULL AS col5, NULL AS col6, NULL AS col7, NULL AS col8
+FROM npf_consl WHERE consl_sk = :p_consl_sk
+
+UNION ALL
+
+-- 2. SELECT TRUNC(data_load_date)
+SELECT 'data_load_date' AS src, TRUNC(data_load_date), NULL, NULL, NULL, NULL, NULL, NULL, NULL
+FROM npf_data_load_date
+
+UNION ALL
+
+-- 3. SELECT for npf_fin_summ_ac_dtls_gtt insert
+SELECT 'wpa_acc_dtls_gtt' AS src, ac_sk, 
+       CASE WHEN data_src_id = 12 THEN ac_sk ELSE NULL END AS pra_ac_sk,
+       data_src_id, bse_curr_dcde,
+       CASE WHEN bse_curr_dcde = NVL(:p_consl_curr_dcde, bse_curr_dcde) THEN 1
+            ELSE npf_util_pkg.get_exchange_rate(bse_curr_dcde, :p_consl_curr_dcde, :v_valn_as_of_date) END AS exch_rt,
+       1 AS prtnr_pct, :p_consl_sk AS consl_sk, :v_cust_sk AS cust_sk
+FROM wpa_acc_dtls_gtt
+
+UNION ALL
+
+-- 4. SELECT COUNT(*)
+SELECT 'wpa_mstr_prtnr_pct_gtt_count' AS src, COUNT(*), NULL, NULL, NULL, NULL, NULL, NULL, NULL
+FROM wpa_mstr_prtnr_pct_gtt
+
+UNION ALL
+
+-- 5. SELECT for npf_fin_summ_ac_dtls_gtt insert with CTE
+SELECT 'npf_account' AS src, pra.base_accts, pra.ac_sk, acc.data_src_id, acc.bse_curr_dcde,
+       NVL(npf_util_pkg.get_exchange_rate(bse_curr_dcde, :p_consl_curr_dcde, :v_valn_as_of_date), pra.exch_rt),
+       pra.prtnr_pct * pra.comps_pct, :p_consl_sk, :v_cust_sk
+FROM (
+    SELECT ac.ac_sk, ac.exch_rt, wpag.prtnr_sk, npfg.ac_sk AS base_accts, wpag.prtnr_pct, npfg.comps_pct
+    FROM wpa_mstr_prtnr_pct_gtt wpag,
+         npf_fin_summ_prtnr_gtt npfg,
+         npf_fin_summ_ac_dtls_gtt ac
+    WHERE wpag.prtnr_sk = npfg.prtnr_sk
+      AND wpag.ac_sk = ac.ac_sk
+      AND ac.data_src_id = 12
+) pra,
+(
+    SELECT ac_sk, data_src_id, bse_curr_dcde
+    FROM npf_account
+    WHERE ac_sk IN (SELECT ac_sk FROM npf_fin_summ_prtnr_gtt)
+) acc
+WHERE acc.ac_sk = pra.base_accts
+
+UNION ALL
+
+-- 6. SELECT for npf_fin_summ_posn_gtt insert
+SELECT 'npf_position' AS src, NVL(gtt.pra_ac_sk, pos.ac_sk), gtt.consl_sk, pos.data_src_id, pos.valn_as_of_date,
+       SUM(mv_bse_amt * exch_rt * prtnr_pct), SUM(adj_bas_bse_amt * exch_rt * prtnr_pct),
+       SUM(unrl_tot_gnls_amt * exch_rt * prtnr_pct), SUM(inc_rcvbl_bse_amt * exch_rt * prtnr_pct)
+FROM npf_position pos, npf_fin_summ_ac_dtls_gtt gtt
+WHERE pos.ac_sk = gtt.ac_sk
+  AND pos.valn_as_of_date = gtt.valn_as_of_date
+  AND pos.valn_run_time = gtt.valn_run_time
+  AND pos.valn_freq_dcde = gtt.valn_freq_dcde
+  AND gtt.valn_as_of_date IS NOT NULL
+  AND gtt.data_src_id <> 12
+  AND NOT EXISTS (
+      SELECT 1 FROM wpa_mstr_prtnr_pct_gtt lnk
+      WHERE pos.ac_sk = lnk.lnkd_ac_sk
+        AND pos.instr_id = lnk.instr_id
+        AND pra_ac_sk IS NULL
+  )
+GROUP BY NVL(gtt.pra_ac_sk, pos.ac_sk), gtt.consl_sk, pos.data_src_id, pos.valn_as_of_date
+
+UNION ALL
+
+-- 7. Final output SELECT
+SELECT 'npf_fin_summ_posn_gtt' AS src, consl_sk, NVL(MAX(valn_as_of_Date), :v_valn_as_of_date),
+       SUM(mv_bse_amt), SUM(adj_bas_bse_amt), SUM(unrl_tot_gnls_amt), SUM(inc_rcvbl_bse_amt),
+       SUM(exps_pybl_bse_amt), MAX(cst_bas_null_flg)
+FROM npf_fin_summ_posn_gtt
+GROUP BY consl_sk;
