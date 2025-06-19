@@ -1,5 +1,5 @@
-SELECT 'GET_SSP_DTL' AS SOURCE,
-       SSP_ID,
+-- From GET_SSP_DTL
+SELECT SSP_ID,
        SSP_DESC,
        CMNTY_ID,
        SSP_START_DATE,
@@ -7,44 +7,43 @@ SELECT 'GET_SSP_DTL' AS SOURCE,
        SSP_MSG_URL,
        SSP_MSG_TEXT_CLOB,
        CREAT_BY,
-       UPDATE_BY,
-       NULL AS USER_SK,
-       NULL AS LOGIN_ID
-  FROM (SELECT SSP_ID,
-               SSP_DESC,
-               CMNTY_ID,
-               SSP_START_DATE,
-               SSP_END_DATE,
-               SSP_MSG_URL,
-               SSP_MSG_TEXT_CLOB,
-               CREAT_BY,
-               UPDATE_BY,
-               CREAT_TM,
-               ROW_NUMBER() OVER (PARTITION BY SSP_ID ORDER BY CREAT_TM DESC) sort_no
+       UPDATE_BY
+  FROM  (SELECT SSP_ID,
+                SSP_DESC,
+                CMNTY_ID,
+                SSP_START_DATE,
+                SSP_END_DATE,
+                SSP_MSG_URL,
+                SSP_MSG_TEXT_CLOB,
+                CREAT_BY,
+                UPDATE_BY,
+                CREAT_TM,
+                ROW_NUMBER() OVER (PARTITION BY SSP_ID ORDER BY CREAT_TM DESC) sort_no
           FROM WPA_SSP
          WHERE CREAT_TM > SYSDATE - 30) ssp_dtls
- WHERE ssp_dtls.sort_no = 1
+ WHERE  ssp_dtls.sort_no = 1
+ order by ssp_dtls.CREAT_TM DESC;
 
-UNION ALL
+-- From UPDATE_SSP_DTL (inside FOR loop)
+SELECT u.login_id,
+       u.user_sk
+  FROM NPF_USER u
+ WHERE lower(u.login_id) = lower(substr(l_array(i),2))
+   AND u.user_type_dcde = 'XW';
 
-SELECT 'UPDATE_SSP_DTL_GTT' AS SOURCE,
-       NULL AS SSP_ID,
-       NULL AS SSP_DESC,
-       NULL AS CMNTY_ID,
-       NULL AS SSP_START_DATE,
-       NULL AS SSP_END_DATE,
-       NULL AS SSP_MSG_URL,
-       NULL AS SSP_MSG_TEXT_CLOB,
-       NULL AS CREAT_BY,
-       NULL AS UPDATE_BY,
-       user_sk AS USER_SK,
-       login_id AS LOGIN_ID
-  FROM wpa_ssp_usr_lvl_gtt
+-- From UPDATE_SSP_DTL (to get comma-separated login_ids)
+SELECT RTRIM(XMLAGG(XMLELEMENT(E,login_id,',').EXTRACT('//text()') ORDER BY login_id).GetClobVal(),',')
+  INTO l_output
+  FROM wpa_ssp_usr_lvl_gtt;
 
-UNION ALL
+-- From UPDATE_SSP_DTL (to insert into wpa_ssp)
+SELECT DISTINCT user_sk FROM wpa_ssp_usr_lvl_gtt;
 
-SELECT 'UPDATE_SSP_DTL_WPA_SSP' AS SOURCE,
-       SSP_ID,
+-- From UPDATE_SSP_DTL (to check existence)
+SELECT 1 FROM wpa_ssp ssp WHERE ssp.user_sk = gtt.user_sk AND ssp.ssp_id = p_ssp_id;
+
+-- From UPDATE_SSP_DTL (final cursor open)
+SELECT SSP_ID,
        SSP_DESC,
        CMNTY_ID,
        SSP_START_DATE,
@@ -53,8 +52,6 @@ SELECT 'UPDATE_SSP_DTL_WPA_SSP' AS SOURCE,
        SSP_MSG_TEXT_CLOB,
        CREAT_BY,
        UPDATE_BY,
-       USER_SK,
-       NULL AS LOGIN_ID
+       USER_SK
   FROM WPA_SSP
- WHERE SSP_ID = 1
-;
+ WHERE SSP_ID = 1;
