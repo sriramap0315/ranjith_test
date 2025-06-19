@@ -1,57 +1,41 @@
--- From GET_SSP_DTL
-SELECT SSP_ID,
-       SSP_DESC,
-       CMNTY_ID,
-       SSP_START_DATE,
-       SSP_END_DATE,
-       SSP_MSG_URL,
-       SSP_MSG_TEXT_CLOB,
-       CREAT_BY,
-       UPDATE_BY
-  FROM  (SELECT SSP_ID,
-                SSP_DESC,
-                CMNTY_ID,
-                SSP_START_DATE,
-                SSP_END_DATE,
-                SSP_MSG_URL,
-                SSP_MSG_TEXT_CLOB,
-                CREAT_BY,
-                UPDATE_BY,
-                CREAT_TM,
-                ROW_NUMBER() OVER (PARTITION BY SSP_ID ORDER BY CREAT_TM DESC) sort_no
-          FROM WPA_SSP
-         WHERE CREAT_TM > SYSDATE - 30) ssp_dtls
- WHERE  ssp_dtls.sort_no = 1
- order by ssp_dtls.CREAT_TM DESC;
-
--- From UPDATE_SSP_DTL (inside FOR loop)
-SELECT u.login_id,
-       u.user_sk
-  FROM NPF_USER u
- WHERE lower(u.login_id) = lower(substr(l_array(i),2))
-   AND u.user_type_dcde = 'XW';
-
--- From UPDATE_SSP_DTL (to get comma-separated login_ids)
-SELECT RTRIM(XMLAGG(XMLELEMENT(E,login_id,',').EXTRACT('//text()') ORDER BY login_id).GetClobVal(),',')
-  INTO l_output
-  FROM wpa_ssp_usr_lvl_gtt;
-
--- From UPDATE_SSP_DTL (to insert into wpa_ssp)
-SELECT DISTINCT user_sk FROM wpa_ssp_usr_lvl_gtt;
-
--- From UPDATE_SSP_DTL (to check existence)
-SELECT 1 FROM wpa_ssp ssp WHERE ssp.user_sk = gtt.user_sk AND ssp.ssp_id = p_ssp_id;
-
--- From UPDATE_SSP_DTL (final cursor open)
-SELECT SSP_ID,
-       SSP_DESC,
-       CMNTY_ID,
-       SSP_START_DATE,
-       SSP_END_DATE,
-       SSP_MSG_URL,
-       SSP_MSG_TEXT_CLOB,
-       CREAT_BY,
-       UPDATE_BY,
-       USER_SK
-  FROM WPA_SSP
- WHERE SSP_ID = 1;
+WITH ssp_dtls AS (
+    SELECT
+        SSP_ID,
+        SSP_DESC,
+        CMNTY_ID,
+        SSP_START_DATE,
+        SSP_END_DATE,
+        SSP_MSG_URL,
+        SSP_MSG_TEXT_CLOB,
+        CREAT_BY,
+        UPDATE_BY,
+        CREAT_TM,
+        ROW_NUMBER() OVER (PARTITION BY SSP_ID ORDER BY CREAT_TM DESC) AS sort_no
+    FROM WPA_SSP
+    WHERE CREAT_TM > CURRENT_TIMESTAMP() - INTERVAL '30 DAY'
+),
+user_ids AS (
+    SELECT TRIM(value) AS login_id
+    FROM TABLE(SPLIT_TO_TABLE(:user_id_list, ','))
+),
+user_sk_list AS (
+    SELECT u.login_id, u.user_sk
+    FROM NPF_USER u
+    JOIN user_ids ids ON LOWER(u.login_id) = LOWER(ids.login_id)
+    WHERE u.user_type_dcde = 'XW'
+)
+SELECT
+    ssp.SSP_ID,
+    ssp.SSP_DESC,
+    ssp.CMNTY_ID,
+    ssp.SSP_START_DATE,
+    ssp.SSP_END_DATE,
+    ssp.SSP_MSG_URL,
+    ssp.SSP_MSG_TEXT_CLOB,
+    ssp.CREAT_BY,
+    ssp.UPDATE_BY,
+    skl.user_sk
+FROM ssp_dtls ssp
+JOIN user_sk_list skl ON 1=1
+WHERE ssp.sort_no = 1
+ORDER BY ssp.CREAT_TM DESC;
