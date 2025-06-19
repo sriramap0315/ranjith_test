@@ -1,0 +1,60 @@
+SELECT 'GET_SSP_DTL' AS SOURCE,
+       SSP_ID,
+       SSP_DESC,
+       CMNTY_ID,
+       SSP_START_DATE,
+       SSP_END_DATE,
+       SSP_MSG_URL,
+       SSP_MSG_TEXT_CLOB,
+       CREAT_BY,
+       UPDATE_BY,
+       NULL AS USER_SK,
+       NULL AS LOGIN_ID
+  FROM (SELECT SSP_ID,
+               SSP_DESC,
+               CMNTY_ID,
+               SSP_START_DATE,
+               SSP_END_DATE,
+               SSP_MSG_URL,
+               SSP_MSG_TEXT_CLOB,
+               CREAT_BY,
+               UPDATE_BY,
+               CREAT_TM,
+               ROW_NUMBER() OVER (PARTITION BY SSP_ID ORDER BY CREAT_TM DESC) sort_no
+          FROM WPA_SSP
+         WHERE CREAT_TM > SYSDATE - 30) ssp_dtls
+ WHERE ssp_dtls.sort_no = 1
+
+UNION ALL
+
+SELECT 'UPDATE_SSP_DTL_GTT' AS SOURCE,
+       NULL AS SSP_ID,
+       NULL AS SSP_DESC,
+       NULL AS CMNTY_ID,
+       NULL AS SSP_START_DATE,
+       NULL AS SSP_END_DATE,
+       NULL AS SSP_MSG_URL,
+       NULL AS SSP_MSG_TEXT_CLOB,
+       NULL AS CREAT_BY,
+       NULL AS UPDATE_BY,
+       user_sk AS USER_SK,
+       login_id AS LOGIN_ID
+  FROM wpa_ssp_usr_lvl_gtt
+
+UNION ALL
+
+SELECT 'UPDATE_SSP_DTL_WPA_SSP' AS SOURCE,
+       SSP_ID,
+       SSP_DESC,
+       CMNTY_ID,
+       SSP_START_DATE,
+       SSP_END_DATE,
+       SSP_MSG_URL,
+       SSP_MSG_TEXT_CLOB,
+       CREAT_BY,
+       UPDATE_BY,
+       USER_SK,
+       NULL AS LOGIN_ID
+  FROM WPA_SSP
+ WHERE SSP_ID = 1
+;
